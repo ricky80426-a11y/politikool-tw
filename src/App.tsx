@@ -565,7 +565,8 @@ function buildFallbackNewsArticle(winData, finalPlayers, historyList, totalRound
 async function fetchPoliticalNewsFromGemini(winData, finalPlayers, historyList, totalRounds, styleId = 'standard') {
   const styleObj = NEWS_STYLES.find((s) => s.id === styleId) || NEWS_STYLES[0];
   const apiKey = '';
-  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+  const apiUrl = '/.netlify/functions/generate-news';
+
 
   const partyStandings = finalPlayers
     .map((p) => {
