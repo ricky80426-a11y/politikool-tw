@@ -664,6 +664,92 @@ async function fetchPoliticalNewsFromGemini(winData, finalPlayers, historyList, 
       return buildFallbackNewsArticle(winData, finalPlayers, historyList, totalRounds, styleId);
     }
     export default function App() {
+  // 遊戲全局階段：'setup' | 'draft' | 'playing' | 'gameover'
+  const [stage, setStage] = useState('setup');
+  // 政黨隨機分配開關（開啟時直接盲抽分配政黨並開局；關閉時進入輪流選黨階段）
+  const [randomPartyDraft, setRandomPartyDraft] = useState(false);
+
+  // 4 名玩家座位設定（預設：1 真人 + 3 電腦 AI，亦可切換全真人同機熱座）
+  const [seatConfig, setSeatConfig] = useState([
+    { id: 0, name: '玩家 1（你）', isAI: false, cash: 1680 },
+    { id: 1, name: '陳總召', isAI: true, cash: 950 },
+    { id: 2, name: '林主席', isAI: true, cash: 2300 },
+    { id: 3, name: '黃委員', isAI: true, cash: 1200 },
+  ]);
+
+  const [startingPlayerId, setStartingPlayerId] = useState(0);
+  const [draftTurnId, setDraftTurnId] = useState(0);
+  const [players, setPlayers] = useState([]);
+  const [deck, setDeck] = useState([]);
+  const [discard, setDiscard] = useState([]);
+
+  // 當前回合狀態
+  const [turnPlayerId, setTurnPlayerId] = useState(0);
+  const [turnNumber, setTurnNumber] = useState(1);
+  // turnMode: null (尚未二選一) | 'voter' (已選打出選民) | 'scheme' (已選執行陰謀)
+  const [turnMode, setTurnMode] = useState(null);
+  const [schemesUsed, setSchemesUsed] = useState(0);
+
+  // 互動視窗與佇列狀態 (取代所有 alert/confirm)
+  const [pendingPrompt, setPendingPrompt] = useState(null);
+  const [privacyShieldForId, setPrivacyShieldForId] = useState(null);
+  const [winnerInfo, setWinnerInfo] = useState(null);
+
+  // 輔助面板開關
+  const [showRulesModal, setShowRulesModal] = useState(false);
+  const [showDiscardModal, setShowDiscardModal] = useState(false);
+  const [logs, setLogs] = useState([]);
+  const [headline, setHeadline] = useState('歡迎來到《政治風暴》四人執政爭奪戰！');
+
+  // 終局政治新聞報導狀態與完整歷程紀錄
+  const [newsArticle, setNewsArticle] = useState(null);
+  const [newsLoading, setNewsLoading] = useState(false);
+  const [newsStyle, setNewsStyle] = useState('standard');
+  const [copiedNews, setCopiedNews] = useState(false);
+  const [showTimelineInModal, setShowTimelineInModal] = useState(false);
+
+  // 立院臨時動議（多數決特殊規則）每局冷卻
+  const [motionUsedThisTurn, setMotionUsedThisTurn] = useState(false);
+  // 協商結盟冷卻：一回合只能對一對象使用，且被拒絕後下回合才能再次提出邀請
+  const [allianceProposedThisTurn, setAllianceProposedThisTurn] = useState(false);
+
+  const aiTimerRef = useRef(null);
+  const fullHistoryRef = useRef([]);
+  const turnNumberRef = useRef(1);
+  const newsRequestIdRef = useRef(0);
+
+  const addLog = (msg) => {
+    const entry = {
+      id: Date.now() + Math.random(),
+      round: turnNumberRef.current,
+      text: msg,
+    };
+    fullHistoryRef.current.push(entry);
+    setLogs((prev) => [entry, ...prev].slice(0, 50));
+    setHeadline(msg);
+  };
+
+  // 觸發終局政治新聞生成（支援切換媒體視角重新撰稿）
+  const triggerNewsGeneration = async (winData, finalPlayers, styleId = 'standard') => {
+    const reqId = ++newsRequestIdRef.current;
+    setNewsStyle(styleId);
+    setNewsLoading(true);
+    setCopiedNews(false);
+
+    const historySnapshot = [...fullHistoryRef.current];
+    const roundsSnapshot = turnNumberRef.current;
+    const article = await fetchPoliticalNewsFromGemini(
+      winData,
+      finalPlayers,
+      historySnapshot,
+      roundsSnapshot,
+      styleId
+    );
+    if (reqId === newsRequestIdRef.current) {
+      setNewsArticle(article);
+      setNewsLoading(false);
+    }
+  };
 
 
   // 一鍵複製整篇政治新聞報導
