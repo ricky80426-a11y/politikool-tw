@@ -663,7 +663,8 @@ async function fetchPoliticalNewsFromGemini(winData, finalPlayers, historyList, 
     
       return buildFallbackNewsArticle(winData, finalPlayers, historyList, totalRounds, styleId);
     }
-    
+    export default function App() {
+
 
   // 一鍵複製整篇政治新聞報導
   const handleCopyNews = async () => {
@@ -3858,8 +3859,7 @@ async function fetchPoliticalNewsFromGemini(winData, finalPlayers, historyList, 
       )}
     </div>
   );
-
-
+}
 // ============================================================================
 // 子組件：對手座位資訊卡 & 規則百科視窗
 // ============================================================================
