@@ -1,5 +1,29 @@
 import https from 'https';
 
+function callGeminiModel(modelName, apiKey, payload) {
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        hostname: 'generativelanguage.' + 'googleapis.com',
+        path: `/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(apiKey)}`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(payload),
+        },
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => (data += chunk));
+        res.on('end', () => resolve({ statusCode: res.statusCode, body: data }));
+      }
+    );
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
 export const handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' };
@@ -21,32 +45,22 @@ export const handler = async (event) => {
       },
     });
 
-    const result = await new Promise((resolve, reject) => {
-      const req = https.request(
-        {
-          hostname: 'generativelanguage.' + 'googleapis.com',
-          path: `/v1beta/models/gemini-3.8-flash:generateContent?key=${encodeURIComponent(apiKey)}`,
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(payload),
-          },
-        },
-        (res) => {
-          let data = '';
-          res.on('data', (chunk) => (data += chunk));
-          res.on('end', () => resolve({ statusCode: res.statusCode, body: data }));
-        }
-      );
-      req.on('error', reject);
-      req.write(payload);
-      req.end();
-    });
+    // 優先使用 gemini-4-hydrogen，若遇到 503/429 滿載則自動無縫切換至 gemini-3.8-flash
+    const models = ['gemini-4-hydrogen', 'gemini-3.8-flash'];
+    let lastResult = { statusCode: 500, body: '{}' };
+
+    for (const model of models) {
+      const result = await callGeminiModel(model, apiKey, payload);
+      lastResult = result;
+      if (result.statusCode === 200) {
+        break;
+      }
+    }
 
     return {
-      statusCode: result.statusCode,
+      statusCode: lastResult.statusCode,
       headers: { 'Content-Type': 'application/json' },
-      body: result.body,
+      body: lastResult.body,
     };
   } catch (error) {
     return {
