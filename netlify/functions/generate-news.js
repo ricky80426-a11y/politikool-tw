@@ -5,11 +5,6 @@ export const handler = async (event) => {
     return { statusCode: 405, body: 'Method Not Allowed' };
   }
 
-  const origin = event.headers.origin || event.headers.referer || '';
-  if (origin && !origin.includes('netlify.app') && !origin.includes('localhost')) {
-    return { statusCode: 403, body: JSON.stringify({ error: 'Forbidden origin' }) };
-  }
-
   const apiKey = (process.env.GEMINI_API_KEY || '').trim();
   if (!apiKey) {
     return { statusCode: 500, body: JSON.stringify({ error: 'Missing GEMINI_API_KEY' }) };
@@ -18,18 +13,19 @@ export const handler = async (event) => {
   try {
     const body = JSON.parse(event.body);
     const payload = JSON.stringify({
-      ...body,
+      contents: body.contents,
+      systemInstruction: body.systemInstruction,
       generationConfig: {
-        ...(body.generationConfig || {}),
-        maxOutputTokens: 8192,
-      }
+        responseMimeType: 'application/json',
+        maxOutputTokens: 4096,
+      },
     });
 
     const result = await new Promise((resolve, reject) => {
       const req = https.request(
         {
           hostname: 'generativelanguage.' + 'googleapis.com',
-          path: `/v1beta/models/gemini-3.8-flash:generateContent?key=${encodeURIComponent(apiKey)}`,
+          path: `/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`,
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -55,7 +51,7 @@ export const handler = async (event) => {
   } catch (error) {
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: error.message, cause: error.cause?.message || '' }),
+      body: JSON.stringify({ error: error.message }),
     };
   }
 };

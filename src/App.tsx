@@ -589,177 +589,81 @@ async function fetchPoliticalNewsFromGemini(winData, finalPlayers, historyList, 
     .map((entry, idx) => `${idx + 1}. [第${entry.round}輪] ${entry.text}`)
     .join('\n');
 
-  const systemPrompt = `你是一位資深臺灣政治線特派記者與政論主筆。請根據桌遊《政治風暴》（POLITIKO Taiwan）的四人對戰完整歷程紀錄與最終計票數據，撰寫一篇生動、精彩、極具臺灣政治新聞臨場感（融入立院攻防、派系合縱連橫、密室協商、選情告急、黑箱或買作票爭議、司法特赦反制等元素）的政治頭條新聞報導。
-寫作規範：
-1. 嚴格使用對戰紀錄中的政黨名稱與玩家名稱，切勿代入現實政治人物真名。
-2. 具體點出對戰歷程中真實發生過的關鍵陰謀卡、結盟拆夥、反制或選民動員轉折，讓玩家讀起來充滿共鳴與成就感。
-3. 文筆風格設定：${styleObj.promptHint}
-4. 請使用繁體中文，並嚴格依指定 JSON 結構回傳（bodyParagraphs 請撰寫 3 段層次分明的內文）。`;
-
-  const userQuery = `【本局大選最終結果】
-- 總進行輪數：共 ${totalRounds} 輪
-- 獲勝方式：${winData.mode === 'solo' ? '單獨執政獲勝（率先突破 8 票門檻）' : '聯合執政獲勝（結盟合計突破 15 票門檻）'}
-- 最終執政贏家：${winnerSummary}（合計 ${winData.totalVotes} 票）
-
-【四黨最終得票與狀態】
-${partyStandings}
-
-【完整對戰歷程時間軸（由開局至終局）】
-${timelineText}`;
-
-  const payload = {
-    contents: [{ parts: [{ text: userQuery }] }],
-    systemInstruction: {
-      parts: [{ text: systemPrompt }],
-    },
-    generationConfig: {
-      responseMimeType: 'application/json',
-      responseSchema: {
-        type: 'OBJECT',
-        properties: {
-          headline: { type: 'STRING' },
-          subheadline: { type: 'STRING' },
-          lead: { type: 'STRING' },
-          bodyParagraphs: {
-            type: 'ARRAY',
-            items: { type: 'STRING' },
-          },
-          punditQuote: { type: 'STRING' },
+    const systemPrompt = `你是一位資深臺灣政治線特派記者與政論主筆。請根據桌遊《政治風暴》（POLITIKO Taiwan）的四人對戰完整歷程紀錄與最終計票數據，撰寫一篇生動、精彩、極具臺灣政治新聞臨場感（融入立院攻防、派系合縱連橫、密室協商、選情告急、黑箱或買作票爭議、司法特赦反制等元素）的政治頭條新聞報導。
+    寫作規範：
+    1. 嚴格使用對戰紀錄中的政黨名稱與玩家名稱，切勿代入現實政治人物真名。
+    2. 具體點出對戰歷程中真實發生過的關鍵陰謀卡、結盟拆夥、反制或選民動員轉折，讓玩家讀起來充滿共鳴與成就感。
+    3. 文筆風格設定：${styleObj.promptHint}
+    4. 請使用繁體中文，並嚴格只回傳一個合法的 JSON 物件（不要包含 markdown 標記），格式如下：
+    {
+      "headline": "主標題",
+      "subheadline": "副標題",
+      "lead": "導言第一段",
+      "bodyParagraphs": ["內文第一段", "內文第二段", "內文第三段"],
+      "punditQuote": "名嘴點評"
+    }`;
+    
+      const userQuery = `【本局大選最終結果】
+    - 總進行輪數：共 ${totalRounds} 輪
+    - 獲勝方式：${winData.mode === 'solo' ? '單獨執政獲勝（率先突破 8 票門檻）' : '聯合執政獲勝（結盟合計突破 15 票門檻）'}
+    - 最終執政贏家：${winnerSummary}（合計 ${winData.totalVotes} 票）
+    
+    【四黨最終得票與狀態】
+    ${partyStandings}
+    
+    【完整對戰歷程時間軸（由開局至終局）】
+    ${timelineText}`;
+    
+      const payload = {
+        contents: [{ parts: [{ text: userQuery }] }],
+        systemInstruction: {
+          parts: [{ text: systemPrompt }],
         },
-        propertyOrdering: ['headline', 'subheadline', 'lead', 'bodyParagraphs', 'punditQuote'],
-      },
-    },
-  };
+      };
+    
+      const delays = new Array(1000, 2000, 4000);
+      for (let attempt = 0; attempt <= delays.length; attempt++) {
+        try {
+          const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+    
+          if (!response.ok) {
+            const errDetail = await response.text();
+            console.error('Gemini Proxy Error:', response.status, errDetail);
+            throw new Error(`HTTP ${response.status}`);
+          }
+    
+          const result = await response.json();
+          let rawText = result?.candidates?.at(0)?.content?.parts?.at(0)?.text || '';
 
-  const delays = [1000, 2000, 4000];
-  for (let attempt = 0; attempt <= delays.length; attempt++) {
-    try {
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      const result = await response.json();
-      const rawText = result?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (rawText) {
-        const parsed = JSON.parse(rawText);
-        if (
-          parsed.headline &&
-          parsed.lead &&
-          Array.isArray(parsed.bodyParagraphs) &&
-          parsed.bodyParagraphs.length > 0
-        ) {
-          return parsed;
+          rawText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
+    
+          if (rawText) {
+            const parsed = JSON.parse(rawText);
+            if (
+              parsed.headline &&
+              parsed.lead &&
+              Array.isArray(parsed.bodyParagraphs) &&
+              parsed.bodyParagraphs.length > 0
+            ) {
+              return parsed;
+            }
+          }
+          throw new Error('Invalid structured response');
+        } catch (err) {
+          console.error('Attempt failed:', err);
+          if (attempt < delays.length) {
+            await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
+          }
         }
       }
-      throw new Error('Invalid structured response');
-    } catch (err) {
-      if (attempt < delays.length) {
-        await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
-      }
+    
+      return buildFallbackNewsArticle(winData, finalPlayers, historyList, totalRounds, styleId);
     }
-  }
-
-  return buildFallbackNewsArticle(winData, finalPlayers, historyList, totalRounds, styleId);
-}
-
-// ============================================================================
-// 3. 主程式組件 App
-// ============================================================================
-
-export default function App() {
-  // 遊戲全局階段：'setup' | 'draft' | 'playing' | 'gameover'
-  const [stage, setStage] = useState('setup');
-  // 政黨隨機分配開關（開啟時直接盲抽分配政黨並開局；關閉時進入輪流選黨階段）
-  const [randomPartyDraft, setRandomPartyDraft] = useState(false);
-
-  // 4 名玩家座位設定（預設：1 真人 + 3 電腦 AI，亦可切換全真人同機熱座）
-  const [seatConfig, setSeatConfig] = useState([
-    { id: 0, name: '玩家 1（你）', isAI: false, cash: 1680 },
-    { id: 1, name: '陳總召', isAI: true, cash: 950 },
-    { id: 2, name: '林主席', isAI: true, cash: 2300 },
-    { id: 3, name: '黃委員', isAI: true, cash: 1200 },
-  ]);
-
-  const [startingPlayerId, setStartingPlayerId] = useState(0);
-  const [draftTurnId, setDraftTurnId] = useState(0);
-  const [players, setPlayers] = useState([]);
-  const [deck, setDeck] = useState([]);
-  const [discard, setDiscard] = useState([]);
-
-  // 當前回合狀態
-  const [turnPlayerId, setTurnPlayerId] = useState(0);
-  const [turnNumber, setTurnNumber] = useState(1);
-  // turnMode: null (尚未二選一) | 'voter' (已選打出選民) | 'scheme' (已選執行陰謀)
-  const [turnMode, setTurnMode] = useState(null);
-  const [schemesUsed, setSchemesUsed] = useState(0);
-
-  // 互動視窗與佇列狀態 (取代所有 alert/confirm)
-  const [pendingPrompt, setPendingPrompt] = useState(null);
-  const [privacyShieldForId, setPrivacyShieldForId] = useState(null);
-  const [winnerInfo, setWinnerInfo] = useState(null);
-
-  // 輔助面板開關
-  const [showRulesModal, setShowRulesModal] = useState(false);
-  const [showDiscardModal, setShowDiscardModal] = useState(false);
-  const [logs, setLogs] = useState([]);
-  const [headline, setHeadline] = useState('歡迎來到《政治風暴》四人執政爭奪戰！');
-
-  // 終局政治新聞報導狀態與完整歷程紀錄
-  const [newsArticle, setNewsArticle] = useState(null);
-  const [newsLoading, setNewsLoading] = useState(false);
-  const [newsStyle, setNewsStyle] = useState('standard');
-  const [copiedNews, setCopiedNews] = useState(false);
-  const [showTimelineInModal, setShowTimelineInModal] = useState(false);
-
-  // 立院臨時動議（多數決特殊規則）每局冷卻
-  const [motionUsedThisTurn, setMotionUsedThisTurn] = useState(false);
-  // 協商結盟冷卻：一回合只能對一對象使用，且被拒絕後下回合才能再次提出邀請
-  const [allianceProposedThisTurn, setAllianceProposedThisTurn] = useState(false);
-
-  const aiTimerRef = useRef(null);
-  const fullHistoryRef = useRef([]);
-  const turnNumberRef = useRef(1);
-  const newsRequestIdRef = useRef(0);
-
-  const addLog = (msg) => {
-    const entry = {
-      id: Date.now() + Math.random(),
-      round: turnNumberRef.current,
-      text: msg,
-    };
-    fullHistoryRef.current.push(entry);
-    setLogs((prev) => [entry, ...prev].slice(0, 50));
-    setHeadline(msg);
-  };
-
-  // 觸發終局政治新聞生成（支援切換媒體視角重新撰稿）
-  const triggerNewsGeneration = async (winData, finalPlayers, styleId = 'standard') => {
-    const reqId = ++newsRequestIdRef.current;
-    setNewsStyle(styleId);
-    setNewsLoading(true);
-    setCopiedNews(false);
-
-    const historySnapshot = [...fullHistoryRef.current];
-    const roundsSnapshot = turnNumberRef.current;
-    const article = await fetchPoliticalNewsFromGemini(
-      winData,
-      finalPlayers,
-      historySnapshot,
-      roundsSnapshot,
-      styleId
-    );
-
-    if (newsRequestIdRef.current === reqId) {
-      setNewsArticle(article);
-      setNewsLoading(false);
-    }
-  };
+    
 
   // 一鍵複製整篇政治新聞報導
   const handleCopyNews = async () => {
@@ -3954,7 +3858,7 @@ export default function App() {
       )}
     </div>
   );
-}
+
 
 // ============================================================================
 // 子組件：對手座位資訊卡 & 規則百科視窗
