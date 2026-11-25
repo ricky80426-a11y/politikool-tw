@@ -36,31 +36,42 @@ export const handler = async (event) => {
 
   try {
     const body = JSON.parse(event.body);
-    const payload = JSON.stringify({
+
+    // 關閉深度思考（thinkingBudget: 0）讓寫稿速度提升 10 倍，避免超過 Netlify 30 秒連線上限
+    const fastPayload = JSON.stringify({
       contents: body.contents,
       systemInstruction: body.systemInstruction,
       generationConfig: {
         responseMimeType: 'application/json',
-        maxOutputTokens: 4096,
+        maxOutputTokens: 2500,
+        thinkingConfig: { thinkingBudget: 0 },
       },
     });
 
-    // 優先使用 gemini-4-hydrogen，若遇到 503/429 滿載則自動無縫切換至 gemini-3.8-flash
-    const models = ['gemini-4-hydrogen', 'gemini-3.8-flash'];
-    let lastResult = { statusCode: 500, body: '{}' };
+    const result = await callGeminiModel('gemini-4-hydrogen', apiKey, fastPayload);
 
-    for (const model of models) {
-      const result = await callGeminiModel(model, apiKey, payload);
-      lastResult = result;
-      if (result.statusCode === 200) {
-        break;
-      }
+    // 若遇到 503 尖峰忙碌，改用無 thinkingConfig 的標準呼叫並切換備援模型
+    if (result.statusCode !== 200) {
+      const fallbackPayload = JSON.stringify({
+        contents: body.contents,
+        systemInstruction: body.systemInstruction,
+        generationConfig: {
+          responseMimeType: 'application/json',
+          maxOutputTokens: 2500,
+        },
+      });
+      const fallbackResult = await callGeminiModel('gemini-3.8-flash', apiKey, fallbackPayload);
+      return {
+        statusCode: fallbackResult.statusCode,
+        headers: { 'Content-Type': 'application/json' },
+        body: fallbackResult.body,
+      };
     }
 
     return {
-      statusCode: lastResult.statusCode,
+      statusCode: result.statusCode,
       headers: { 'Content-Type': 'application/json' },
-      body: lastResult.body,
+      body: result.body,
     };
   } catch (error) {
     return {
